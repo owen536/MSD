@@ -1,0 +1,72 @@
+import cv2
+import mediapipe as mp
+from ultralytics import YOLO
+
+# Initialize YOLO model (replace 'yolov8-model.pt' with your model path)
+yolo_model = YOLO('yolov8-model.pt')
+
+# Initialize Mediapipe for hand tracking
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+
+# Load an image or video for processing
+def process_frame(frame):
+    # YOLO object detection
+    results = yolo_model(frame)
+
+    # Process YOLO detections (filter hands)
+    yolo_hands = [res for res in results[0].boxes if res.label == 'hand']
+    num_hands_yolo = len(yolo_hands)
+
+    # MediaPipe hand landmark detection
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results_hands = hands.process(rgb_frame)
+
+    num_hands_mediapipe = 0
+    hand_finger_movements = []
+
+    if results_hands.multi_hand_landmarks:
+        num_hands_mediapipe = len(results_hands.multi_hand_landmarks)
+
+        for hand_landmarks in results_hands.multi_hand_landmarks:
+            # Calculate finger movements or positions (e.g., using landmarks)
+            finger_positions = [
+                (landmark.x, landmark.y) for landmark in hand_landmarks.landmark
+            ]
+            hand_finger_movements.append(finger_positions)
+
+    # Determine the category (6, 7, 8호)
+    if num_hands_mediapipe == 1 and hand_finger_movements:
+        if len(hand_finger_movements[0]) > 5:  # Example threshold for repetitive movement
+            category = "6호: 반복 작업"
+        else:
+            category = "7호: 한 손 작업"
+    elif num_hands_mediapipe == 2:
+        category = "8호: 양손 작업"
+    else:
+        category = "Unknown 작업"
+
+    # Draw results on frame
+    for detection in yolo_hands:
+        bbox = detection.xyxy[0]  # Bounding box coordinates
+        cv2.rectangle(frame, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), (0, 255, 0), 2)
+
+    cv2.putText(frame, category, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+    return frame, category
+
+
+# Main loop for video processing
+cap = cv2.VideoCapture(0)  # Change to video file path if needed
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    processed_frame, detected_category = process_frame(frame)
+    cv2.imshow("Processed Frame", processed_frame)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
