@@ -1,0 +1,121 @@
+import cv2
+import mediapipe as mp
+import matplotlib.pyplot as plt
+
+def classify_task(weight, frequency_per_minute=None, total_hours=None, positions=None):
+    """
+    Classifies the task based on the given weight and other parameters.
+
+    Args:
+        weight (float): The weight of the object in kg.
+        frequency_per_minute (float, optional): Lifting frequency per minute. Default is None.
+        total_hours (float, optional): Total hours per day performing the task. Default is None.
+        positions (list, optional): List of positions such as "below knee", "above shoulder", "extended arm". Default is None.
+
+    Returns:
+        str: The category of the task (6~10) or 'No Match'.
+    """
+    # Debugging output for inputs
+    print(f"Debug: weight = {weight}, total_hours = {total_hours}, frequency_per_minute = {frequency_per_minute}, positions = {positions}")
+
+    # Task 6: 2 hours, unsupported, 1kg with one finger OR precision work
+    if total_hours and total_hours >= 2 and (
+        (weight >= 1 and positions and "one-finger" in positions) or
+        (weight <= 1 and positions and "precision work" in positions)
+    ):
+        return "6호"
+
+    # Task 7: 2 hours, unsupported, 4.5kg with one hand
+    if total_hours and total_hours >= 2 and weight >= 4.5 and positions and "one-hand" in positions:
+        return "7호"
+
+    # Task 8: 10 times/day, 25kg
+    if weight >= 25 and frequency_per_minute and frequency_per_minute * total_hours * 60 >= 10:
+        return "8호"
+
+    # Task 9: 25 times/day, 10kg, below knee/above shoulder/extended arm
+    if total_hours and frequency_per_minute and frequency_per_minute * total_hours * 60 >= 25 and (
+        positions and any(pos in ["below knee", "above shoulder", "extended arm"] for pos in positions)
+    ) and weight >= 10:
+        return "9호"
+
+    # Task 10: 2 hours, 2 times/min, 4.5kg
+    if total_hours and total_hours >= 2 and frequency_per_minute and frequency_per_minute >= 2 and weight >= 4.5:
+        return "10호"
+
+    return "No Match"
+
+
+def detect_positions(image_path):
+    """
+    Detects hand positions and body posture from an image and visualizes the results.
+    Args:
+        image_path (str): Path to the input image.
+
+    Returns:
+        list: Detected positions (e.g., 'above shoulder', 'below knee', 'extended arm', 'one-finger', 'precision work').
+    """
+    mp_pose = mp.solutions.pose
+    mp_hands = mp.solutions.hands
+    detected_positions = []
+
+    # Load image
+    image = cv2.imread(image_path)
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+    # Pose detection
+    annotated_image = image.copy()
+    with mp_pose.Pose() as pose:
+        result_pose = pose.process(image_rgb)
+        if result_pose.pose_landmarks:
+            mp.solutions.drawing_utils.draw_landmarks(
+                annotated_image, result_pose.pose_landmarks, mp_pose.POSE_CONNECTIONS
+            )
+            for lm in result_pose.pose_landmarks.landmark:
+                if lm.y < 0.5:  # Example condition: if hand is above the shoulder
+                    detected_positions.append("above shoulder")
+                elif lm.y > 0.8:  # Example condition: if hand is below the knee
+                    detected_positions.append("below knee")
+
+    # Hand detection
+    with mp_hands.Hands() as hands:
+        result_hands = hands.process(image_rgb)
+        if result_hands.multi_hand_landmarks:
+            for hand_landmarks in result_hands.multi_hand_landmarks:
+                mp.solutions.drawing_utils.draw_landmarks(
+                    annotated_image, hand_landmarks, mp_hands.HAND_CONNECTIONS
+                )
+            if len(result_hands.multi_hand_landmarks) == 1:
+                detected_positions.append("one-finger")  # Example for one-finger
+            elif len(result_hands.multi_hand_landmarks) > 1:
+                detected_positions.append("precision work")  # Precision work detection
+
+    # Display the annotated image
+    plt.figure(figsize=(10, 10))
+    plt.imshow(cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB))
+    plt.axis('off')
+    plt.title("Pose and Hand Detection Results")
+    plt.show()
+
+    return detected_positions
+
+# Example integration script for Colab
+if __name__ == "__main__":
+    from google.colab import files
+
+    print("Upload an image file for analysis")
+    uploaded = files.upload()
+
+    for filename in uploaded.keys():
+        positions = detect_positions(filename)
+
+        try:
+            weight = float(input("Enter the weight of the object (kg): "))
+            total_hours = float(input("Enter the total hours per day performing the task: "))
+            frequency_per_minute = float(input("Enter the lifting frequency per minute (optional, press Enter to skip): ") or 0)
+
+            result = classify_task(weight, frequency_per_minute, total_hours, positions)
+            print(f"The task is classified as: {result}")
+
+        except ValueError:
+            print("Invalid input. Please enter numeric values for weight, hours, and frequency.")
